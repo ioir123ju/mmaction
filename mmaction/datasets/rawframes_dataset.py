@@ -260,6 +260,7 @@ class RawFramesDataset(Dataset):
         return images
 
     def __getitem__(self, idx):
+        print("start")
         record = self.video_infos[idx]
         if self.test_mode:
             segment_indices, skip_offsets = self._get_test_indices(record)
@@ -276,7 +277,6 @@ class RawFramesDataset(Dataset):
         image_tmpl = self.image_tmpls[0]
         img_group = self._get_frames(
             record, image_tmpl, modality, segment_indices, skip_offsets)
-
         flip = True if np.random.rand() < self.flip_ratio else False
         if (self.img_scale_dict is not None
                 and record.path in self.img_scale_dict):
@@ -346,5 +346,5 @@ class RawFramesDataset(Dataset):
                 'img_group_{}'.format(i+1):
                 DC(to_tensor(img_group), stack=True, pad_dims=2),
             })
-
+        print(":end")
         return data

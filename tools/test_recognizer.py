@@ -1,5 +1,5 @@
 import argparse
-
+import os
 import torch
 import mmcv
 from mmcv.runner import load_checkpoint, parallel_test, obj_from_dict
@@ -52,6 +52,7 @@ def parse_args():
 
 
 def main():
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     args = parse_args()
 
     if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):

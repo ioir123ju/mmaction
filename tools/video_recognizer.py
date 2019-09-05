@@ -17,6 +17,8 @@ import mmcv
 import numpy as np
 import torch
 import os
+import argparse
+from mmcv.runner import load_checkpoint, parallel_test, obj_from_dict
 from mmcv.parallel import DataContainer as DC
 from mmcv.visualization import color_val
 from mmaction.datasets.transforms import ImageTransform, GroupImageTransform
@@ -137,7 +139,6 @@ class RawFramesDataset():
         return [x.strip().split(' ') for x in open(ann_file)]
 
     def get_data(self, img_group):
-
         # if self.test_mode:
         #     segment_indices, skip_offsets = self._get_test_indices(record)
         # else:
@@ -145,7 +146,7 @@ class RawFramesDataset():
         #         record) if self.random_shift else self._get_val_indices(record)
 
         data = dict(num_modalities=DC([[to_tensor(len(self.modalities))]]))
-
+        # data = dict(num_modalities=DC(to_tensor(len(self.modalities))))
         # handle the first modality
         modality = self.modalities[0]
         image_tmpl = self.image_tmpls[0]
@@ -176,11 +177,11 @@ class RawFramesDataset():
         # [M x C x H x W]
         # M = 1 * N_oversample * N_seg * L
 
+        tensor = to_tensor(img_group[:, np.newaxis])[:, np.newaxis]
         data.update(dict(
-            img_group_0=DC([to_tensor([img_group])], stack=True, pad_dims=2),
-            img_meta=DC(img_meta, cpu_only=True)
+            img_group_0=DC(tensor, stack=True, pad_dims=2),
+            img_meta=DC([[img_meta]], cpu_only=True)
         ))
-
         return data
 
 
@@ -278,86 +279,111 @@ def single_test(model, data_loader):
     return results
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Test an action recognizer')
+    parser.add_argument('config', help='test config file path')
+    parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument(
+        '--gpus', default=1, type=int, help='GPU number used for testing')
+    parser.add_argument(
+        '--proc_per_gpu',
+        default=1,
+        type=int,
+        help='Number of processes per GPU')
+    parser.add_argument('--out', help='output result file')
+    parser.add_argument('--use_softmax', action='store_true',
+                        help='whether to use softmax score')
+    args = parser.parse_args()
+    return args
+
+
 if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-    cfg = mmcv.Config.fromfile('configs/ucf101/tsn_rgb_bninception.py')
+    args = parse_args()
 
+    cfg = mmcv.Config.fromfile(args.config)
     model = build_recognizer(
             cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
     # model.to('cuda:0')
     # model.eval()
-    # load_checkpoint(model, args.checkpoint, strict=True)
+    load_checkpoint(model, args.checkpoint, strict=True)
     model = MMDataParallel(model, device_ids=[0])
     model.cfg = cfg
-
+    model.eval()
     """
     图片识别
     """
-    from mmcv.runner import load_checkpoint, parallel_test, obj_from_dict
-    from mmaction import datasets
-    from mmaction.datasets import build_dataloader
-    dataset = obj_from_dict(cfg.data.test, datasets, dict(test_mode=True))
-    data_loader = build_dataloader(
-        dataset,
-        imgs_per_gpu=1,
-        workers_per_gpu=cfg.data.workers_per_gpu,
-        num_gpus=1,
-        dist=False,
-        shuffle=False)
-
-    outputs = single_test(model, data_loader)
-
-    use_softmax = False
-    if use_softmax is True:
-        print("Averaging score over {} clips with softmax".format(
-            outputs[0].shape[0]))
-        results = [softmax(res, dim=1).mean(axis=0) for res in outputs]
-    else:
-        print("Averaging score over {} clips without softmax (ie, raw)".format(
-            outputs[0].shape[0]))
-        results = [res.mean(axis=0) for res in outputs]
-    print("result:{}".format(results))
-    pred = int(np.argmax(results, axis=1))
-    print(pred)
-    print(results[0][pred])
-    ann_file = "data/ucf101/annotations/classInd.txt"
-    label_name = [x.strip().split(' ') for x in open(ann_file)]
-    print(label_name[pred])
+    # from mmcv.runner import load_checkpoint, parallel_test, obj_from_dict
+    # from mmaction import datasets
+    # from mmaction.datasets import build_dataloader
+    # dataset = obj_from_dict(cfg.data.test, datasets, dict(test_mode=True))
+    # data_loader = build_dataloader(
+    #     dataset,
+    #     imgs_per_gpu=1,
+    #     workers_per_gpu=cfg.data.workers_per_gpu,
+    #     num_gpus=1,
+    #     dist=False,
+    #     shuffle=False)
+    #
+    # outputs = single_test(model, data_loader)
+    #
+    # use_softmax = False
+    # if use_softmax is True:
+    #     print("Averaging score over {} clips with softmax".format(
+    #         outputs[0].shape[0]))
+    #     results = [softmax(res, dim=1).mean(axis=0) for res in outputs]
+    # else:
+    #     print("Averaging score over {} clips without softmax (ie, raw)".format(
+    #         outputs[0].shape[0]))
+    #     results = [res.mean(axis=0) for res in outputs]
+    # print("result:{}".format(results))
+    # pred = int(np.argmax(results, axis=1))
+    # print(pred)
+    # print(results[0][pred])
+    # ann_file = "data/ucf101/annotations/classInd.txt"
+    # label_name = [x.strip().split(' ') for x in open(ann_file)]
+    # print(label_name[pred])
     #
     """
     视频识别
     """
-    # cap = cv2.VideoCapture('data/ucf101/videos/HandstandPushups/v_HandStandPushups_g01_c01.avi')
-    # while (cap.isOpened()):
-    #     ret, frame = cap.read()
-    #     outputs = []
-    #     args = cfg.data.test.copy()
-    #     obj_type = args.pop('type')
-    #     data = RawFramesDataset(**args)
-    #     imgs = data.get_data([frame])
-    #     gt_labels = data.load_annotations("data/ucf101/annotations/classInd.txt")
-    #     with torch.no_grad():
-    #         output = model(return_loss=False, **imgs)
-    #         outputs.append(output)
-    #
-    #     use_softmax = True
-    #     if use_softmax is True:
-    #         print("Averaging score over {} clips with softmax".format(
-    #             outputs[0].shape[0]))
-    #         results = [softmax(res, dim=1).mean(axis=0) for res in outputs]
-    #     else:
-    #         print("Averaging score over {} clips without softmax (ie, raw)".format(
-    #             outputs[0].shape[0]))
-    #         results = [res.mean(axis=0) for res in outputs]
-    #     pred = int(np.argmax(results, axis=1))
-    #     print(pred)
-    #     print(results[0][pred])
-    #     print(gt_labels[pred])
-    #     text_color = color_val('green')
-    #     cv2.putText(frame, gt_labels[pred][1], (100, 100),
-    #                 cv2.FONT_HERSHEY_COMPLEX, 1, text_color)
-    #     cv2.imshow('image', frame)
-    #     cv2.waitKey(0)
+    args = cfg.data.test.copy()
+    obj_type = args.pop('type')
+    data = RawFramesDataset(**args)
+    gt_labels = data.load_annotations("data/ucf101/annotations/classInd.txt")
+    cap = cv2.VideoCapture('../mmskeleton/test3.mp4')
+    while (cap.isOpened()):
+        images = list()
+        outputs = []
+        for i in range(25):
+            ret, frame = cap.read()
+            if ret is False:
+                break
+            images.append(frame)
+        imgs = data.get_data(images)
+        print("start model recongnize")
+        with torch.no_grad():
+            output = model(return_loss=False, **imgs)
+            outputs.append(output)
+
+        use_softmax = False
+        if use_softmax is True:
+            print("Averaging score over {} clips with softmax".format(
+                outputs[0].shape[0]))
+            results = [softmax(res, dim=1).mean(axis=0) for res in outputs]
+        else:
+            print("Averaging score over {} clips without softmax (ie, raw)".format(
+                outputs[0].shape[0]))
+            results = [res.mean(axis=0) for res in outputs]
+        pred = int(np.argmax(results, axis=1))
+        print(pred)
+        print(results[0][pred])
+        print(gt_labels[pred])
+        text_color = color_val('green')
+        cv2.putText(frame, gt_labels[pred][1], (100, 100),
+                    cv2.FONT_HERSHEY_COMPLEX, 0.5, text_color)
+        cv2.imshow('image', frame)
+        cv2.waitKey(0)
 
     cap.release()
     cv2.destroyAllWindows()
