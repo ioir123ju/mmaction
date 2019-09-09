@@ -260,7 +260,6 @@ class RawFramesDataset(Dataset):
         return images
 
     def __getitem__(self, idx):
-        print("start")
         record = self.video_infos[idx]
         if self.test_mode:
             segment_indices, skip_offsets = self._get_test_indices(record)
@@ -346,5 +345,4 @@ class RawFramesDataset(Dataset):
                 'img_group_{}'.format(i+1):
                 DC(to_tensor(img_group), stack=True, pad_dims=2),
             })
-        print(":end")
         return data

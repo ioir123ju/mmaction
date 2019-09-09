@@ -350,12 +350,12 @@ if __name__ == '__main__':
     args = cfg.data.test.copy()
     obj_type = args.pop('type')
     data = RawFramesDataset(**args)
-    gt_labels = data.load_annotations("data/ucf101/annotations/classInd.txt")
-    cap = cv2.VideoCapture('../mmskeleton/test3.mp4')
+    gt_labels = data.load_annotations("data/hmdb51/labels.txt")
+    cap = cv2.VideoCapture('data/hmdb51/videos/fall_floor/BATMAN_BEGINS_fall_floor_f_cm_np1_ba_med_11.avi')
     while (cap.isOpened()):
         images = list()
         outputs = []
-        for i in range(25):
+        for i in range(5):
             ret, frame = cap.read()
             if ret is False:
                 break
@@ -366,7 +366,7 @@ if __name__ == '__main__':
             output = model(return_loss=False, **imgs)
             outputs.append(output)
 
-        use_softmax = False
+        use_softmax = True
         if use_softmax is True:
             print("Averaging score over {} clips with softmax".format(
                 outputs[0].shape[0]))
@@ -380,9 +380,10 @@ if __name__ == '__main__':
         print(results[0][pred])
         print(gt_labels[pred])
         text_color = color_val('green')
-        cv2.putText(frame, gt_labels[pred][1], (100, 100),
-                    cv2.FONT_HERSHEY_COMPLEX, 0.5, text_color)
-        cv2.imshow('image', frame)
+        for image in images:
+            cv2.putText(image, str(gt_labels[pred]), (100, 100),
+                        cv2.FONT_HERSHEY_COMPLEX, 0.5, text_color)
+            cv2.imshow('image', image)
         cv2.waitKey(0)
 
     cap.release()
